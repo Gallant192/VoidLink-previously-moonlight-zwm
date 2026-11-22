@@ -472,7 +472,7 @@ struct WidgetPickerView: View {
     private let buttonMacroTimedMinimumDuration: Double = 50
     private let buttonMacroMaximumDuration: Double = 2000
     private let triggerIntervalMinimumDuration: Double = 0
-    private let triggerIntervalMaximumDuration: Double = 3000
+    private let triggerIntervalMaximumDuration: Double = 10000
     private let isEditMode: Bool
     private let initialCmdString: String?
     private let initialButtonLabel: String?
@@ -2528,7 +2528,7 @@ struct WidgetPickerView: View {
                         ) {
                             Slider(
                                 value: $widgetTriggerInterval,
-                                in: 0...2000,
+                                in: 0...10000,
                                 step: 1
                             )
                             .environment(\.colorScheme, .light)
@@ -2557,7 +2557,7 @@ struct WidgetPickerView: View {
                             ) {
                                 Slider(
                                     value: $widgetTriggerIntervalMax,
-                                    in: 0...2000,
+                                    in: 0...10000,
                                     step: 1
                                 )
                                 .environment(\.colorScheme, .light)

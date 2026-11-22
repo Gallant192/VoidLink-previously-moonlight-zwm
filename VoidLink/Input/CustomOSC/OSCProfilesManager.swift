@@ -499,6 +499,7 @@ class OSCProfilesManager: NSObject {
             buttonState.autoTapInterval = UInt16(clamping: widgetView.autoTapInterval)
             buttonState.autoTapRepeats = widgetView.autoTapRepeats
             buttonState.autoTapIntervalMax = UInt32(clamping: widgetView.autoTapIntervalMax)
+            buttonState.fillColorIndex = Int32(clamping: widgetView.fillColorIndex)
             buttonState.vibrationStyle = UInt8(widgetView.vibrationStyle)
             buttonState.mouseButtonAction = UInt8(widgetView.mouseButtonAction.rawValue)
             buttonState.animatesTransition = widgetView.animatesTransition

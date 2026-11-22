@@ -51,6 +51,7 @@
     [encoder encodeInt:self.autoTapInterval forKey:@"autoTapInterval"];
     [encoder encodeInt:self.autoTapRepeats forKey:@"autoTapRepeats"];
     [encoder encodeInt64:self.autoTapIntervalMax forKey:@"autoTapIntervalMax"];
+    [encoder encodeInt32:self.fillColorIndex forKey:@"fillColorIndex"];
     [encoder encodeCGPoint:self.position forKey:@"position"];
     [encoder encodeBool:self.isHidden forKey:@"isHidden"];
     [encoder encodeFloat:self.widthFactor forKey:@"widthFactor"];
@@ -109,6 +110,7 @@
         self.autoTapInterval = [decoder containsValueForKey:@"autoTapInterval"] ? [decoder decodeIntForKey:@"autoTapInterval"] : 45;
         self.autoTapRepeats = [decoder containsValueForKey:@"autoTapRepeats"] ? [decoder decodeIntForKey:@"autoTapRepeats"] : 0;
         self.autoTapIntervalMax = [decoder containsValueForKey:@"autoTapIntervalMax"] ? (uint32_t)[decoder decodeInt64ForKey:@"autoTapIntervalMax"] : 0;
+        self.fillColorIndex = [decoder containsValueForKey:@"fillColorIndex"] ? [decoder decodeInt32ForKey:@"fillColorIndex"] : 0;
         self.position = [decoder decodeCGPointForKey:@"position"];
         self.isHidden = [decoder decodeBoolForKey:@"isHidden"];
         self.widthFactor = [decoder decodeFloatForKey:@"widthFactor"];

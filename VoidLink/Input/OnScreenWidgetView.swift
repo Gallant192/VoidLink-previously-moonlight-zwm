@@ -180,7 +180,28 @@ import ObjectiveC.runtime
 
     
     @objc public var borderWidth: CGFloat = 0.0
-    
+
+    // Button fill colour. 0 = VoidLink's default dark/light fill; other values index fillColorPalette.
+    @objc public static let fillColorPalette: [UIColor] = [
+        UIColor(white: 0.1, alpha: 1), // 0: default (placeholder, not used for drawing)
+        .systemRed, .systemOrange, .systemYellow, .systemGreen,
+        .systemTeal, .systemBlue, .systemPurple, .systemPink, .white
+    ]
+    @objc public var fillColorIndex: Int = 0 {
+        didSet { applyFillColor() }
+    }
+
+    private func applyFillColor() {
+        guard widgetType == WidgetTypeEnum.button else { return }
+        let realBackgroundAlpha = max(abs(self.backgroundAlpha) - 0.18, 0)
+        if fillColorIndex > 0, fillColorIndex < Self.fillColorPalette.count {
+            // Keep coloured buttons visible even at low opacity settings.
+            self.backgroundColor = Self.fillColorPalette[fillColorIndex].withAlphaComponent(max(realBackgroundAlpha, 0.35))
+        } else {
+            self.backgroundColor = UIColor(white:self.backgroundAlpha>0 ? 0.1 : 0.9, alpha: realBackgroundAlpha)
+        }
+    }
+
     @objc public var backgroundAlpha: CGFloat = 0.5
     @objc public var originalBackgroundAlpha: CGFloat = 0.5{
         didSet {
@@ -977,6 +998,9 @@ import ObjectiveC.runtime
         
         if widgetType == WidgetTypeEnum.touchPad {
             self.backgroundColor = UIColor.clear // make touchPad transparent
+        }
+        else if fillColorIndex > 0 {
+            applyFillColor()
         }
     }
     

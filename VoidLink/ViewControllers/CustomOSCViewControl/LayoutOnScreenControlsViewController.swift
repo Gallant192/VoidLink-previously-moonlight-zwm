@@ -445,6 +445,7 @@ final class LayoutOnScreenControlsViewController: UIViewController, OnScreenWidg
                 widgetView.autoTapInterval = Int(buttonState.autoTapInterval)
                 widgetView.autoTapRepeats = UInt32(buttonState.autoTapRepeats)
                 widgetView.autoTapIntervalMax = Int(buttonState.autoTapIntervalMax)
+                widgetView.fillColorIndex = Int(buttonState.fillColorIndex)
                 widgetView.setVibration(style: Int(buttonState.vibrationStyle))
                 widgetView.mouseButtonAction = MouseButtonAction(rawValue: Int(buttonState.mouseButtonAction)) ?? .hovering
                 widgetView.animatesTransition = buttonState.animatesTransition
@@ -647,6 +648,7 @@ final class LayoutOnScreenControlsViewController: UIViewController, OnScreenWidg
         }
         
         buttonModeStack.isHidden = !hidden || (selectedWidget?.widgetType != .button)
+        fillColorStack?.isHidden = buttonModeStack.isHidden
         collectedWidgetsStack.isHidden = selectedWidget?.isFolder != true
         
         if PublicUtils.isIPhone {
@@ -763,6 +765,81 @@ final class LayoutOnScreenControlsViewController: UIViewController, OnScreenWidg
         label.adjustsFontSizeToFitWidth = true
         label.minimumScaleFactor = 0.3
         label.numberOfLines = 1
+    }
+
+    // MARK: - Button colour row (added in code; sits under the Button mode row)
+
+    private var fillColorStack: UIStackView?
+    private var fillColorSelector: UISegmentedControl?
+
+    private func fillColorSwatch(_ color: UIColor) -> UIImage {
+        let size = CGSize(width: 16, height: 16)
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            color.setFill()
+            context.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1))
+            UIColor(white: 1, alpha: 0.6).setStroke()
+            context.cgContext.setLineWidth(1)
+            context.cgContext.strokeEllipse(in: CGRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1))
+        }
+        return image.withRenderingMode(.alwaysOriginal)
+    }
+
+    private func setupFillColorStack() {
+        guard fillColorStack == nil,
+              let parentStack = buttonModeStack.superview as? UIStackView,
+              let modeIndex = parentStack.arrangedSubviews.firstIndex(of: buttonModeStack) else { return }
+
+        let label = UILabel()
+        label.text = "Color"
+        label.textColor = .white
+        if let modeLabel = buttonModeStack.arrangedSubviews.first as? UILabel {
+            label.font = modeLabel.font
+            label.widthAnchor.constraint(equalToConstant: modeLabel.bounds.width > 0 ? modeLabel.bounds.width : 120).isActive = true
+        } else {
+            label.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        }
+
+        let selector = UISegmentedControl()
+        selector.insertSegment(withTitle: "—", at: 0, animated: false)
+        for index in 1..<OnScreenWidgetView.fillColorPalette.count {
+            selector.insertSegment(with: fillColorSwatch(OnScreenWidgetView.fillColorPalette[index]), at: index, animated: false)
+        }
+        selector.selectedSegmentIndex = 0
+        selector.backgroundColor = buttonModeSelector.backgroundColor
+        selector.alpha = buttonModeSelector.alpha
+        selector.tintColor = buttonModeSelector.tintColor
+        selector.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .normal)
+        selector.addTarget(self, action: #selector(fillColorChanged(_:)), for: .valueChanged)
+
+        let stack = UIStackView(arrangedSubviews: [label, selector])
+        stack.axis = buttonModeStack.axis
+        stack.spacing = buttonModeStack.spacing
+        stack.alignment = buttonModeStack.alignment
+        stack.distribution = buttonModeStack.distribution
+        stack.isHidden = true
+        parentStack.insertArrangedSubview(stack, at: modeIndex + 1)
+
+        fillColorStack = stack
+        fillColorSelector = selector
+    }
+
+    private func refreshFillColorStack(for widgetView: OnScreenWidgetView?) {
+        guard let widgetView, widgetView.widgetType == .button else {
+            fillColorStack?.isHidden = true
+            return
+        }
+        fillColorStack?.isHidden = false
+        let index = widgetView.fillColorIndex
+        fillColorSelector?.selectedSegmentIndex = (0..<OnScreenWidgetView.fillColorPalette.count).contains(index) ? index : 0
+    }
+
+    @objc private func fillColorChanged(_ sender: UISegmentedControl) {
+        guard let selectedWidget, widgetViewSelected else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        selectedWidget.fillColorIndex = sender.selectedSegmentIndex
+        selectedWidget.adjustTransparency(alpha: selectedWidget.originalBackgroundAlpha, tweakBorderAlpha: false)
+        CATransaction.commit()
     }
 
     private func autoFitStack(_ stack: UIStackView) {
@@ -1060,6 +1137,7 @@ final class LayoutOnScreenControlsViewController: UIViewController, OnScreenWidg
 
         buttonModeStack.isHidden = widgetView.widgetType != .button
         buttonModeSelector.selectedSegmentIndex = Int(widgetView.buttonMode.rawValue)
+        refreshFillColorStack(for: widgetView)
         
         collectedWidgetsStack.isHidden = !widgetView.isFolder
         collectedWidgetsSelector.selectedSegmentIndex = widgetView.folded ? 1 : 0
@@ -1321,6 +1399,7 @@ final class LayoutOnScreenControlsViewController: UIViewController, OnScreenWidg
         newWidget.autoTapInterval = widget.autoTapInterval
         newWidget.autoTapRepeats = widget.autoTapRepeats
         newWidget.autoTapIntervalMax = widget.autoTapIntervalMax
+        newWidget.fillColorIndex = widget.fillColorIndex
         newWidget.sensitivityFactorY = widget.sensitivityFactorY
         newWidget.slideThreshold = widget.slideThreshold
         newWidget.yawFactor = widget.yawFactor
@@ -1922,6 +2001,7 @@ final class LayoutOnScreenControlsViewController: UIViewController, OnScreenWidg
         buttonModeSelector.addTarget(self, action: #selector(buttonModeChanged(_:)), for: .valueChanged)
         buttonModeSelector.setTitleTextAttributes(whiteAttrs, for: .normal)
         buttonModeStack.isHidden = true
+        setupFillColorStack()
         
         collectedWidgetsSelector.addTarget(self, action: #selector(collectionHiddenChanged(_:)), for: .valueChanged)
         collectedWidgetsSelector.setTitleTextAttributes(whiteAttrs, for: .normal)
