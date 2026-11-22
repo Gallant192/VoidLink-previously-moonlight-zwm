@@ -67,6 +67,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) bool animatesTransition;
 @property (nonatomic, assign) uint16_t autoTapInterval;
 @property (nonatomic, assign) uint32_t autoTapRepeats;
+@property (nonatomic, assign) uint32_t autoTapIntervalMax; // > autoTapInterval = random autotap range
 
 @property (nonatomic, assign) uint8_t walkKeyActionType;
 @property (nonatomic, assign) CGFloat walkKeyThreshold;

@@ -496,8 +496,9 @@ class OSCProfilesManager: NSObject {
             buttonState.highlightAlpha = widgetView.highlightAlpha
             buttonState.borderWidth = widgetView.borderWidth
             buttonState.highlightSizeFactor = widgetView.highlightSizeFactor
-            buttonState.autoTapInterval = UInt16(widgetView.autoTapInterval)
+            buttonState.autoTapInterval = UInt16(clamping: widgetView.autoTapInterval)
             buttonState.autoTapRepeats = widgetView.autoTapRepeats
+            buttonState.autoTapIntervalMax = UInt32(clamping: widgetView.autoTapIntervalMax)
             buttonState.vibrationStyle = UInt8(widgetView.vibrationStyle)
             buttonState.mouseButtonAction = UInt8(widgetView.mouseButtonAction.rawValue)
             buttonState.animatesTransition = widgetView.animatesTransition

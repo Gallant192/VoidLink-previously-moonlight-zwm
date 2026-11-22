@@ -1032,6 +1032,7 @@ static NSString * const KeyboardInputSentinel = @"\u200B";
                     widgetView.highlightSizeFactor = buttonState.highlightSizeFactor;
                     widgetView.autoTapInterval = buttonState.autoTapInterval;
                     widgetView.autoTapRepeats = buttonState.autoTapRepeats;
+                    widgetView.autoTapIntervalMax = buttonState.autoTapIntervalMax;
                     [widgetView setVibrationWithStyle:buttonState.vibrationStyle];
                     widgetView.mouseButtonAction = buttonState.mouseButtonAction;
                     widgetView.animatesTransition = buttonState.animatesTransition;

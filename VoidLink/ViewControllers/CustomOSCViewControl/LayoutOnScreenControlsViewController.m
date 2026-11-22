@@ -181,6 +181,7 @@ typedef NS_ENUM(NSUInteger, DecelerationRateSliderMode) {
                 widgetView.borderWidth = buttonState.borderWidth;
                 widgetView.highlightSizeFactor = buttonState.highlightSizeFactor;
                 widgetView.autoTapInterval = buttonState.autoTapInterval;
+                widgetView.autoTapIntervalMax = buttonState.autoTapIntervalMax;
                 [widgetView setVibrationWithStyle:buttonState.vibrationStyle];
                 widgetView.mouseButtonAction = buttonState.mouseButtonAction;
                 widgetView.sensitivityFactorX = buttonState.sensitivityFactorX;
@@ -939,6 +940,7 @@ typedef NS_ENUM(NSUInteger, DecelerationRateSliderMode) {
     newWidget.borderWidth = widget.borderWidth;
     newWidget.highlightSizeFactor = widget.highlightSizeFactor;
     newWidget.autoTapInterval = widget.autoTapInterval;
+    newWidget.autoTapIntervalMax = widget.autoTapIntervalMax;
     newWidget.sensitivityFactorX = widget.sensitivityFactorX;
     newWidget.sensitivityFactorY = widget.sensitivityFactorY;
     newWidget.slideThreshold = widget.slideThreshold;
@@ -1222,7 +1224,7 @@ typedef NS_ENUM(NSUInteger, DecelerationRateSliderMode) {
     self.autoTapField.textColor = [UIColor whiteColor];
     self.autoTapField.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
     self.autoTapField.attributedPlaceholder =
-        [[NSAttributedString alloc] initWithString:[LocalizationHelper localizedStringForKey:@"Minimum: 50ms. 0 to disable. ms(milliSec),s(sec),m(min). ⏎ to save"]
+        [[NSAttributedString alloc] initWithString:[LocalizationHelper localizedStringForKey:@"Min 50ms, 0 = off. 500ms, 2s, or random 800~1500ms. ⏎ to save"]
                                         attributes:@{
                     NSForegroundColorAttributeName:[[UIColor whiteColor] colorWithAlphaComponent:0.77]
                                         }];
@@ -1803,7 +1805,19 @@ typedef NS_ENUM(NSUInteger, DecelerationRateSliderMode) {
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
     if(textField == _autoTapField){
         [textField resignFirstResponder]; // 收起键盘
+        NSInteger previousInterval = selectedWidgetView.autoTapInterval;
         [selectedWidgetView setAutoTapIntervalByTextWithStr:textField.text];
+        [textField setText:[selectedWidgetView getAutoTapIntervalStr]];
+        // Turning autotap on for a regular button defaults it to Tap to toggle (tap once to start repeating, tap again to stop).
+        BOOL autoTapJustEnabled = previousInterval < 50 && selectedWidgetView.autoTapInterval >= 50;
+        if (autoTapJustEnabled
+            && (selectedWidgetView.buttonMode == regular
+                || selectedWidgetView.buttonMode == slideToToggle
+                || selectedWidgetView.buttonMode == slideAndHold)
+            && [self.buttonModeSelector isEnabledForSegmentAtIndex:tapToToggle]) {
+            selectedWidgetView.buttonMode = tapToToggle;
+            [self.buttonModeSelector setSelectedSegmentIndex:tapToToggle];
+        }
     }
     return YES;
 }

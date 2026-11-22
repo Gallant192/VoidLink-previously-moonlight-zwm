@@ -213,6 +213,14 @@ import ObjectiveC.runtime
     @objc public var autoTapRepeats: UInt32 = 0;
     private var autoTapCount: UInt32 = 0;
     private var autoTapTimer: SafeTimer?
+    // Random autotap: when autoTapIntervalMax > autoTapInterval, each repeat waits a
+    // random time between the two instead of using the fixed-rate timer.
+    @objc public var autoTapIntervalMax: Int = 0;
+    private var randomAutoTapGeneration: Int = 0
+    private let randomAutoTapQueue = DispatchQueue(label: "com.voidlink.randomautotap")
+    private var hasRandomAutoTap: Bool {
+        autoTapIntervalMax > autoTapInterval && autoTapInterval >= OnScreenWidgetView.MinAutotapInterval
+    }
     
     private let appWindow: UIView
     
@@ -745,6 +753,49 @@ import ObjectiveC.runtime
                     self.handleButtonUp()
                 }
             }
+        }
+    }
+
+    private func startRandomAutoTap() {
+        randomAutoTapQueue.async {
+            self.randomAutoTapGeneration += 1
+            self.autoTapCount = 0
+            self.runRandomAutoTapTick(generation: self.randomAutoTapGeneration)
+        }
+    }
+
+    private func stopRandomAutoTap() {
+        randomAutoTapQueue.async {
+            self.randomAutoTapGeneration += 1
+        }
+    }
+
+    // Runs on randomAutoTapQueue. Fires one tap, then schedules the next one after a random wait.
+    private func runRandomAutoTapTick(generation: Int) {
+        guard generation == randomAutoTapGeneration, hasRandomAutoTap else { return }
+        var reachedRepeatLimit = false
+        if autoTapRepeats > 0 {
+            autoTapCount += 1
+            reachedRepeatLimit = autoTapCount >= autoTapRepeats
+        }
+        DispatchQueue.main.async {
+            self.handleButtonDown()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
+                self.handleButtonUp()
+            }
+            if reachedRepeatLimit, self.buttonMode == .tapToToggle {
+                self.tapToToggleFlag = !self.tapToToggleFlag
+            }
+        }
+        if reachedRepeatLimit {
+            randomAutoTapGeneration += 1
+            return
+        }
+        let lower = autoTapInterval
+        let upper = Swift.max(autoTapInterval, autoTapIntervalMax)
+        let nextDelayMs = Int.random(in: lower...upper)
+        randomAutoTapQueue.asyncAfter(deadline: .now() + .milliseconds(nextDelayMs)) { [weak self] in
+            self?.runRandomAutoTapTick(generation: generation)
         }
     }
     
@@ -1987,6 +2038,10 @@ import ObjectiveC.runtime
         if autoTapInterval < OnScreenWidgetView.MinAutotapInterval {
             handleButtonDown()
         }
+        else if hasRandomAutoTap {
+            self.autoTapTimer?.pause()
+            self.startRandomAutoTap()
+        }
         else{
             self.autoTapCount = 0
             self.autoTapTimer?.restart()
@@ -2000,6 +2055,7 @@ import ObjectiveC.runtime
         }
         else{
             self.autoTapTimer?.pause()
+            self.stopRandomAutoTap()
             self.handleButtonUp(leaveNonSkillButtonAlone: leaveNonSkillButtonAlone)
         }
     }
@@ -3753,8 +3809,38 @@ import ObjectiveC.runtime
         OnScreenWidgetView.capturer = nil
     }
     
+    // Accepts a fixed time ("500ms", "2s") or a random range ("800~1500ms", "1~2s", "800ms~2s", "800-1500ms").
     @objc public func setAutoTapIntervalByText(str: String){
-        self.autoTapInterval = self.parseTimeToMilliseconds(str)
+        let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "-", with: "~")
+        let parts = trimmed.split(separator: "~", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 2 else {
+            self.autoTapInterval = self.parseTimeToMilliseconds(trimmed)
+            self.autoTapIntervalMax = 0
+            return
+        }
+        // A unit written only once ("800~1500ms") applies to both ends.
+        let unitPattern = #"(ms|s|m)$"#
+        var lowerText = parts[0]
+        let upperText = parts[1]
+        if lowerText.range(of: unitPattern, options: .regularExpression) == nil,
+           let unitRange = upperText.range(of: unitPattern, options: .regularExpression) {
+            lowerText += upperText[unitRange]
+        }
+        let first = self.parseTimeToMilliseconds(lowerText)
+        let second = self.parseTimeToMilliseconds(upperText)
+        let lower = Swift.min(first, second)
+        let upper = Swift.max(first, second)
+        if lower == 0 {
+            // One end is missing or below 50 ms: fall back to the other end as a fixed time.
+            self.autoTapInterval = upper
+            self.autoTapIntervalMax = 0
+        } else {
+            self.autoTapInterval = lower
+            self.autoTapIntervalMax = upper > lower ? upper : 0
+        }
     }
     
     private func parseTimeToMilliseconds(_ input: String) -> Int {
@@ -3805,13 +3891,20 @@ import ObjectiveC.runtime
     }
 
     @objc public func getAutoTapIntervalStr() -> String {
-        // 边界限制：小于50ms的当作0，超过24小时的限制为24小时
-        let maxMilliseconds = 24 * 60 * 60 * 1000
         if autoTapInterval < 50 {
             return ""
         }
-        let ms = min(autoTapInterval, maxMilliseconds)
-        
+        if hasRandomAutoTap {
+            return "\(autoTapInterval)~\(autoTapIntervalMax)ms"
+        }
+        return Self.autoTapTimeString(autoTapInterval)
+    }
+
+    private static func autoTapTimeString(_ milliseconds: Int) -> String {
+        // 边界限制：小于50ms的当作0，超过24小时的限制为24小时
+        let maxMilliseconds = 24 * 60 * 60 * 1000
+        let ms = min(milliseconds, maxMilliseconds)
+
         if ms % (60 * 1000) == 0 {
             // 整分钟
             return "\(ms / (60 * 1000))m"
@@ -4627,6 +4720,7 @@ import ObjectiveC.runtime
                 self.clearRightStickTouchPadFlag()
             }
             self.autoTapTimer?.clean()
+            self.stopRandomAutoTap()
             self.onScreenControls = nil
         }
         else{

@@ -37,8 +37,29 @@ jobs:
           cp -r ./build/VoidLink.xcarchive/Products/Applications/VoidLink.app ./build/IPA/Payload/VoidLink.app
           cd ./build/IPA && zip -r ../../build/VoidLink.ipa ./Payload/* && cd ../..
 
+      # GitHub's Macs have no Xcode 27 yet. iOS 27 devices run apps linked against an older
+      # SDK in a compatibility (letterboxed) mode, so this makes a second IPA whose executable
+      # reports the iOS 27.2 SDK. The code is identical; only the SDK version field changes.
+      - name: Make SDK 27.2 variant
+        run: |
+          APP=./build/IPA/Payload/VoidLink.app
+          BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          MINOS=$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")
+          echo "Before:"; xcrun vtool -show-build "$BIN" | head -8
+          xcrun vtool -set-build-version ios "$MINOS" 27.2 -replace -output "$BIN.patched" "$BIN"
+          mv "$BIN.patched" "$BIN"
+          /usr/libexec/PlistBuddy -c 'Set :DTPlatformVersion 27.2' -c 'Set :DTSDKName iphoneos27.2' "$APP/Info.plist"
+          echo "After:"; xcrun vtool -show-build "$BIN" | head -8
+          cd ./build/IPA && zip -r ../../build/VoidLink-sdk27.ipa ./Payload/* && cd ../..
+
       - name: Upload VoidLink IPA to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: VoidLink.ipa
           path: build/VoidLink.ipa
+
+      - name: Upload SDK 27.2 variant
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoidLink-sdk27.ipa
+          path: build/VoidLink-sdk27.ipa
