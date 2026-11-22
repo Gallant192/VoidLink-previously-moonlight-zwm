@@ -4,11 +4,15 @@ on:
   push:
     branches: [ "feat/frame_pacing_metal", "random-interval" ]
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "macOS runner image"
+        default: "macos-latest"
 
 jobs:
   build:
     name: Build VoidLink IPA
-    runs-on: macos-latest
+    runs-on: ${{ inputs.runner || 'macos-latest' }}
 
     steps:
       - name: Checkout
@@ -20,7 +24,7 @@ jobs:
       - name: Select newest Xcode
         run: |
           ls -d /Applications/Xcode*.app
-          NEWEST=$(ls -d /Applications/Xcode_*.app | grep -viE "beta|rc" | sort -V | tail -1)
+          NEWEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
           echo "Using $NEWEST"
           sudo xcode-select -s "$NEWEST"
           xcodebuild -version
