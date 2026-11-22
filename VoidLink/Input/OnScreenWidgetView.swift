@@ -2308,12 +2308,20 @@ import ObjectiveC.runtime
         else {return false}
     }
     
+    // Interval tokens are "200MS" (fixed) or "150~350MS" (random range).
+    // A random range picks a fresh value every time it is read.
     private func getMilliSecIntervalFrom(intervalString: String?) -> UInt32{
-        guard let timeIntervalString = intervalString?.replacingOccurrences(of: "MS", with: "") else { return 0 }
-        if let timeInterval = UInt32(timeIntervalString) {
+        guard let timeIntervalString = intervalString?.uppercased().replacingOccurrences(of: "MS", with: "") else { return 0 }
+        let bounds = timeIntervalString
+            .split(separator: "~", omittingEmptySubsequences: false)
+            .map { UInt32($0.trimmingCharacters(in: .whitespaces)) }
+        if bounds.count == 2, let first = bounds[0], let second = bounds[1] {
+            return UInt32.random(in: Swift.min(first, second)...Swift.max(first, second))
+        }
+        if bounds.count == 1, let timeInterval = bounds[0] {
             return timeInterval
         }
-        else {return 0}
+        return 0
     }
     
     private func getMilliSecIntervalFrom(cmdString: String) -> UInt32{
@@ -2361,7 +2369,7 @@ import ObjectiveC.runtime
                 for cmdString in comboStrings {
                     let isIntervalCmd = cmdString.contains("MS")
                     let triggerDelay = hasUnifiedTriggerInterval
-                    ? self.comboKeyTimeIntervalMs :
+                    ? self.getMilliSecIntervalFrom(intervalString: comboStrings.last) :
                     ( isIntervalCmd ? self.getMilliSecIntervalFrom(intervalString: cmdString) : 0)
                     
                     if hasUnifiedTriggerInterval || !isIntervalCmd {
@@ -2378,7 +2386,7 @@ import ObjectiveC.runtime
                 for comboString in comboStrings {
                     self.handleButtonStringDown(comboString)
                     if comboString != comboStrings.last {
-                        usleep(hasUnifiedTriggerInterval ? self.comboKeyTimeIntervalMs*1000 : 0) // delay xxx ms
+                        usleep(hasUnifiedTriggerInterval ? self.getMilliSecIntervalFrom(intervalString: comboStrings.last)*1000 : 0) // delay xxx ms
                     }
                 }
             }
@@ -2410,7 +2418,7 @@ import ObjectiveC.runtime
                 for cmdString in comboStrings {
                     let isIntervalCmd = cmdString.contains("MS")
                     let triggerDelay = hasUnifiedTriggerInterval
-                    ? self.comboKeyTimeIntervalMs :
+                    ? self.getMilliSecIntervalFrom(intervalString: comboStrings.last) :
                     ( isIntervalCmd ? self.getMilliSecIntervalFrom(intervalString: cmdString) : 0)
                     
                     if hasUnifiedTriggerInterval || !isIntervalCmd {
@@ -2428,7 +2436,7 @@ import ObjectiveC.runtime
                     self.handleButtonStringUp(comboString)
                     if comboString != comboStrings.last {
                         self.handleButtonStringUp(comboString)
-                        usleep(self.comboKeyTimeIntervalMs*1000) // delay xxx ms
+                        usleep(hasUnifiedTriggerInterval ? self.getMilliSecIntervalFrom(intervalString: comboStrings.last)*1000 : 0) // delay xxx ms
                     }
                 }
             }

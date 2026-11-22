@@ -505,6 +505,8 @@ struct WidgetPickerView: View {
     @SwiftUI.State private var widgetComboMode: WidgetCreateComboMode = .skill
     @SwiftUI.State private var shortcutPickerButtonMode: ShortcutPickerButtonMode = .normal
     @SwiftUI.State private var widgetTriggerInterval: Double = 0
+    @SwiftUI.State private var widgetTriggerIntervalRandom: Bool = false
+    @SwiftUI.State private var widgetTriggerIntervalMax: Double = 0
     @SwiftUI.State private var widgetShape: WidgetCreateShape = .round
     @SwiftUI.State private var widgetButtonLabel: String = ""
     @SwiftUI.State private var lastCreatedWidgetPayload: [String: String]? = nil
@@ -520,6 +522,8 @@ struct WidgetPickerView: View {
     @SwiftUI.State private var editingTriggerIntervalItemID: UUID? = nil
     @SwiftUI.State private var triggerIntervalEditMode: TriggerIntervalEditMode = .all
     @SwiftUI.State private var triggerIntervalEditorValue: Double = 0
+    @SwiftUI.State private var triggerIntervalRandomEnabled: Bool = false
+    @SwiftUI.State private var triggerIntervalEditorMaxValue: Double = 0
     @SwiftUI.State private var triggerIntervalManualValueText: String = ""
     @SwiftUI.State private var suppressKeyboardDrivenLayoutAnimation = false
     @SwiftUI.State private var poolGridInteractionResetToken: Int = 0
@@ -2048,8 +2052,12 @@ struct WidgetPickerView: View {
     }
 
     private func makeTriggerIntervalItem(milliseconds: Int) -> WidgetPoolItem {
+        makeTriggerIntervalItem(command: Self.makeTriggerIntervalCommand(milliseconds: milliseconds))
+    }
+
+    private func makeTriggerIntervalItem(command: String) -> WidgetPoolItem {
         WidgetPoolItem(
-            cmd: Self.makeTriggerIntervalCommand(milliseconds: milliseconds),
+            cmd: Self.normalizedTriggerIntervalCommand(command) ?? command,
             source: .interval,
             visualKind: .triggerInterval,
             staysAtTail: false,
@@ -2065,7 +2073,8 @@ struct WidgetPickerView: View {
             return
         }
 
-        let existingValues = triggerIntervalItems.compactMap { Self.triggerIntervalMilliseconds(for: $0.cmd) }
+        let existingValues = triggerIntervalItems.compactMap { Self.normalizedTriggerIntervalCommand($0.cmd) }
+        let defaultCommand = defaultMilliseconds.map { Self.makeTriggerIntervalCommand(milliseconds: $0) }
         var nextIntervalIndex = 0
         var remainingButtons = buttonCount
         var rebuiltItems: [WidgetPoolItem] = []
@@ -2075,10 +2084,10 @@ struct WidgetPickerView: View {
             guard isButtonItem(item) else { continue }
             remainingButtons -= 1
             guard remainingButtons > 0 else { continue }
-            let milliseconds = defaultMilliseconds
+            let command = defaultCommand
                 ?? (nextIntervalIndex < existingValues.count ? existingValues[nextIntervalIndex] : nil)
-                ?? 0
-            rebuiltItems.append(makeTriggerIntervalItem(milliseconds: milliseconds))
+                ?? Self.makeTriggerIntervalCommand(milliseconds: 0)
+            rebuiltItems.append(makeTriggerIntervalItem(command: command))
             nextIntervalIndex += 1
         }
 
@@ -2116,26 +2125,42 @@ struct WidgetPickerView: View {
     private func prepareTriggerIntervalSheet(for item: WidgetPoolItem) {
         editingTriggerIntervalItemID = item.id
         triggerIntervalManualValueText = ""
-        let currentValue = Self.triggerIntervalMilliseconds(for: item.cmd) ?? 0
-        let allValues = triggerIntervalItems.compactMap { Self.triggerIntervalMilliseconds(for: $0.cmd) }
-        let uniformNonZeroValue = allValues.allSatisfy { $0 > 0 } ? allValues.first : nil
-        let allValuesAreEqual = !allValues.isEmpty && Set(allValues).count == 1
+        let currentRange = Self.triggerIntervalRange(for: item.cmd) ?? (min: 0, max: 0)
+        let allCommands = triggerIntervalItems.compactMap { Self.normalizedTriggerIntervalCommand($0.cmd) }
+        let allValuesAreNonZero = allCommands.allSatisfy { (Self.triggerIntervalMilliseconds(for: $0) ?? 0) > 0 }
+        let allValuesAreEqual = !allCommands.isEmpty && Set(allCommands).count == 1
 
-        if allValuesAreEqual, let uniformValue = uniformNonZeroValue {
+        let editorRange: (min: Int, max: Int)
+        if allValuesAreEqual, allValuesAreNonZero,
+           let uniformCommand = allCommands.first,
+           let uniformRange = Self.triggerIntervalRange(for: uniformCommand) {
             triggerIntervalEditMode = .all
-            triggerIntervalEditorValue = Double(uniformValue)
+            editorRange = uniformRange
         } else {
             triggerIntervalEditMode = .individual
-            triggerIntervalEditorValue = Double(max(Int(triggerIntervalMinimumDuration), currentValue))
+            editorRange = currentRange
         }
+        triggerIntervalEditorValue = Double(Swift.max(Int(triggerIntervalMinimumDuration), editorRange.min))
+        triggerIntervalEditorMaxValue = Double(Swift.max(Int(triggerIntervalMinimumDuration), editorRange.max))
+        triggerIntervalRandomEnabled = editorRange.min != editorRange.max
+    }
+
+    // Accepts "200", "150~350" or "150-350" (optionally followed by "ms").
+    private var manualTriggerIntervalRange: (min: Int, max: Int)? {
+        var trimmedValue = triggerIntervalManualValueText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "-", with: "~")
+        guard !trimmedValue.isEmpty else { return nil }
+        if !trimmedValue.hasSuffix("MS") {
+            trimmedValue += "MS"
+        }
+        return Self.triggerIntervalRange(for: trimmedValue)
     }
 
     private var manualTriggerIntervalValue: Int? {
-        let trimmedValue = triggerIntervalManualValueText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedValue.isEmpty, let value = Int(trimmedValue), value >= 0 else {
-            return nil
-        }
-        return value
+        manualTriggerIntervalRange?.min
     }
 
     private var triggerIntervalTitleText: String {
@@ -2143,14 +2168,33 @@ struct WidgetPickerView: View {
         if manualTriggerIntervalValue != nil {
             return "\(title): "
         }
-        return "\(title): \(effectiveTriggerIntervalEditorValue) ms"
+        let range = effectiveTriggerIntervalEditorRange
+        if triggerIntervalRandomEnabled {
+            return "Min: \(range.min) ms"
+        }
+        return "\(title): \(range.min) ms"
+    }
+
+    private var triggerIntervalMaxTitleText: String {
+        "Max: \(effectiveTriggerIntervalEditorRange.max) ms"
+    }
+
+    private func clampedTriggerIntervalEditorValue(_ value: Double) -> Int {
+        Int(Swift.min(triggerIntervalMaximumDuration, Swift.max(triggerIntervalMinimumDuration, value.rounded())))
+    }
+
+    private var effectiveTriggerIntervalEditorRange: (min: Int, max: Int) {
+        if let manualTriggerIntervalRange {
+            return manualTriggerIntervalRange
+        }
+        let lower = clampedTriggerIntervalEditorValue(triggerIntervalEditorValue)
+        guard triggerIntervalRandomEnabled else { return (min: lower, max: lower) }
+        let upper = clampedTriggerIntervalEditorValue(triggerIntervalEditorMaxValue)
+        return (min: Swift.min(lower, upper), max: Swift.max(lower, upper))
     }
 
     private var effectiveTriggerIntervalEditorValue: Int {
-        if let manualTriggerIntervalValue {
-            return manualTriggerIntervalValue
-        }
-        return Int(min(triggerIntervalMaximumDuration, max(triggerIntervalMinimumDuration, triggerIntervalEditorValue.rounded())))
+        effectiveTriggerIntervalEditorRange.min
     }
 
     private var triggerIntervalEditModeBinding: Binding<Int> {
@@ -2172,12 +2216,13 @@ struct WidgetPickerView: View {
     }
 
     private func applyTriggerIntervalChanges() {
-        let newMilliseconds = effectiveTriggerIntervalEditorValue
+        let newRange = effectiveTriggerIntervalEditorRange
+        let newCommand = Self.makeTriggerIntervalCommand(minimum: newRange.min, maximum: newRange.max)
 
         switch triggerIntervalEditMode {
         case .all:
             for index in poolItems.indices where isTriggerIntervalItem(poolItems[index]) {
-                poolItems[index] = makeTriggerIntervalItem(milliseconds: newMilliseconds)
+                poolItems[index] = makeTriggerIntervalItem(command: newCommand)
             }
         case .individual:
             guard let editingTriggerIntervalItemID,
@@ -2185,7 +2230,7 @@ struct WidgetPickerView: View {
                 dismissTriggerIntervalSheet()
                 return
             }
-            poolItems[itemIndex] = makeTriggerIntervalItem(milliseconds: newMilliseconds)
+            poolItems[itemIndex] = makeTriggerIntervalItem(command: newCommand)
         }
 
         updateTipMessageForCurrentPoolState()
@@ -2476,7 +2521,9 @@ struct WidgetPickerView: View {
 
                     if showsIntervalSlider {
                         createInteractiveControlSection(
-                            title: "\(LocalizationHelper.localizedString(forKey: "Trigger interval")): \(effectiveTriggerIntervalValue) ms",
+                            title: widgetTriggerIntervalRandom && !isShortcutMode
+                                ? "Min: \(effectiveTriggerIntervalRange.min) ms"
+                                : "\(LocalizationHelper.localizedString(forKey: "Trigger interval")): \(effectiveTriggerIntervalValue) ms",
                             controlHeight: fieldHeight
                         ) {
                             Slider(
@@ -2490,6 +2537,34 @@ struct WidgetPickerView: View {
                                 .opacity(isShortcutMode ? 0.45 : 1.0)
                         }
                         .zIndex(20)
+
+                        createInteractiveControlSection(
+                            title: "Random interval",
+                            controlHeight: fieldHeight
+                        ) {
+                            Toggle("", isOn: $widgetTriggerIntervalRandom)
+                                .labelsHidden()
+                                .frame(height: fieldHeight)
+                                .disabled(isShortcutMode)
+                                .opacity(isShortcutMode ? 0.45 : 1.0)
+                        }
+                        .zIndex(19)
+
+                        if widgetTriggerIntervalRandom && !isShortcutMode {
+                            createInteractiveControlSection(
+                                title: "Max: \(effectiveTriggerIntervalRange.max) ms",
+                                controlHeight: fieldHeight
+                            ) {
+                                Slider(
+                                    value: $widgetTriggerIntervalMax,
+                                    in: 0...2000,
+                                    step: 1
+                                )
+                                .environment(\.colorScheme, .light)
+                                    .frame(height: fieldHeight)
+                            }
+                            .zIndex(18)
+                        }
                     }
 
                     if targetWidgetKind == .button, showsShapeControl {
@@ -2712,7 +2787,37 @@ struct WidgetPickerView: View {
                         .opacity(manualTriggerIntervalValue == nil ? 1.0 : 0.45)
                     }
                     .zIndex(20)
-                    
+
+                    createInteractiveControlSection(
+                        title: "Random interval",
+                        controlHeight: fieldHeight
+                    ) {
+                        Toggle("", isOn: $triggerIntervalRandomEnabled)
+                            .labelsHidden()
+                            .frame(height: fieldHeight)
+                            .disabled(manualTriggerIntervalValue != nil)
+                            .opacity(manualTriggerIntervalValue == nil ? 1.0 : 0.45)
+                    }
+                    .zIndex(19)
+
+                    if triggerIntervalRandomEnabled {
+                        createInteractiveControlSection(
+                            title: triggerIntervalMaxTitleText,
+                            controlHeight: fieldHeight
+                        ) {
+                            Slider(
+                                value: $triggerIntervalEditorMaxValue,
+                                in: triggerIntervalMinimumDuration...triggerIntervalMaximumDuration,
+                                step: 1
+                            )
+                            .environment(\.colorScheme, .light)
+                            .frame(height: fieldHeight)
+                            .disabled(manualTriggerIntervalValue != nil)
+                            .opacity(manualTriggerIntervalValue == nil ? 1.0 : 0.45)
+                        }
+                        .zIndex(18)
+                    }
+
                     createWidgetSection(title: LocalizationHelper.localizedString(forKey: "Manually enter trigger interval in milliseconds")) {
                         InteractiveTextField(
                             placeholder: "",
@@ -3094,6 +3199,16 @@ struct WidgetPickerView: View {
         return Int(widgetTriggerInterval.rounded())
     }
 
+    private var effectiveTriggerIntervalRange: (min: Int, max: Int) {
+        let lower = effectiveTriggerIntervalValue
+        if effectiveWidgetComboMode == .shortcut && showsComboModeControl {
+            return (min: lower, max: lower)
+        }
+        guard widgetTriggerIntervalRandom else { return (min: lower, max: lower) }
+        let upper = Int(widgetTriggerIntervalMax.rounded())
+        return (min: Swift.min(lower, upper), max: Swift.max(lower, upper))
+    }
+
     private var widgetPayloadPreviewText: String {
         let payload = makeWidgetPayload()
         return "{\n  \"cmdString\": \"\(payload["cmdString"] ?? "")\",\n  \"buttonLabel\": \"\(payload["buttonLabel"] ?? "")\",\n  \"shape\": \"\(payload["shape"] ?? "")\"\n}"
@@ -3147,9 +3262,14 @@ struct WidgetPickerView: View {
         }
         if isEditMode {
             widgetComboMode = initialComboMode(from: initialCmdString)
-            widgetTriggerInterval = Double(initialTriggerInterval(from: initialCmdString))
+            let initialRange = initialTriggerIntervalRange(from: initialCmdString)
+            widgetTriggerInterval = Double(initialRange.min)
+            widgetTriggerIntervalMax = Double(initialRange.max)
+            widgetTriggerIntervalRandom = initialRange.min != initialRange.max
         } else {
             widgetTriggerInterval = 0
+            widgetTriggerIntervalMax = 0
+            widgetTriggerIntervalRandom = false
         }
         shortcutPickerButtonMode = shortcutPickerNeedsTapToToggle(initialCmdString) ? .tapToToggle : .normal
         if isEditMode,
@@ -3223,32 +3343,34 @@ struct WidgetPickerView: View {
 
         let joiner = comboJoiner
         if hasTriggerIntervalSlots {
-            let intervalValues = triggerIntervalItems.compactMap { Self.triggerIntervalMilliseconds(for: $0.cmd) }
+            // Interval tokens: "200MS" or "150~350MS"; upper bound 0 means no wait.
+            let intervalValues = triggerIntervalItems.compactMap { Self.normalizedTriggerIntervalCommand($0.cmd) }
             let nonIntervalCommands = poolItems.filter { !isTriggerIntervalItem($0) }.map(\.cmd)
             guard !nonIntervalCommands.isEmpty else { return "" }
 
-            if intervalValues.allSatisfy({ $0 == 0 }) {
+            if intervalValues.allSatisfy({ (Self.triggerIntervalMilliseconds(for: $0) ?? 0) == 0 }) {
                 return (comboJoiner == "+" && nonIntervalCommands.count == 1)
                     ? "\(nonIntervalCommands[0])+"
                     : nonIntervalCommands.joined(separator: joiner)
             }
 
             if let firstInterval = intervalValues.first,
-               firstInterval > 0,
+               (Self.triggerIntervalMilliseconds(for: firstInterval) ?? 0) > 0,
                intervalValues.allSatisfy({ $0 == firstInterval }) {
                 var cmdString = (comboJoiner == "+" && nonIntervalCommands.count == 1)
                     ? "\(nonIntervalCommands[0])+"
                     : nonIntervalCommands.joined(separator: joiner)
-                cmdString += "-\(firstInterval)MS"
+                cmdString += "-\(firstInterval)"
                 return cmdString
             }
 
             let inlineTokens = poolItems.compactMap { item -> String? in
                 if isTriggerIntervalItem(item) {
-                    guard let milliseconds = Self.triggerIntervalMilliseconds(for: item.cmd), milliseconds > 0 else {
+                    guard let token = Self.normalizedTriggerIntervalCommand(item.cmd),
+                          (Self.triggerIntervalMilliseconds(for: token) ?? 0) > 0 else {
                         return nil
                     }
-                    return "\(milliseconds)MS"
+                    return token
                 }
                 return item.cmd
             }
@@ -3260,10 +3382,11 @@ struct WidgetPickerView: View {
         var cmdString = (comboJoiner == "+" && payloadCommands.count == 1) ? "\(payloadCommands[0])+" : payloadCommands.joined(separator: joiner)
 
         let shouldAppendInterval = effectiveWidgetComboMode != .shortcut
-            && effectiveTriggerIntervalValue != 0
+            && effectiveTriggerIntervalRange.max != 0
             && (hasPadCommand || effectiveWidgetComboMode == .skill)
         if shouldAppendInterval {
-            cmdString += "-\(effectiveTriggerIntervalValue)MS"
+            let range = effectiveTriggerIntervalRange
+            cmdString += "-\(Self.makeTriggerIntervalCommand(minimum: range.min, maximum: range.max))"
         }
 
         return cmdString
@@ -3427,16 +3550,16 @@ struct WidgetPickerView: View {
         }
 
         var parsed: [(cmd: String, source: WidgetPoolSource, isTailLocked: Bool, displayText: String?)] = []
-        var trailingUniformInterval: Int? = nil
+        var trailingUniformInterval: String? = nil
         if let last = commands.last,
-           let trailingInterval = Self.triggerIntervalMilliseconds(for: last) {
+           let trailingInterval = Self.normalizedTriggerIntervalCommand(last) {
             trailingUniformInterval = trailingInterval
             commands.removeLast()
         }
 
         for rawCommand in commands where !rawCommand.isEmpty {
-            if let intervalValue = Self.triggerIntervalMilliseconds(for: rawCommand) {
-                parsed.append((cmd: Self.makeTriggerIntervalCommand(milliseconds: intervalValue), source: .interval, isTailLocked: false, displayText: nil))
+            if let intervalCommand = Self.normalizedTriggerIntervalCommand(rawCommand) {
+                parsed.append((cmd: intervalCommand, source: .interval, isTailLocked: false, displayText: nil))
                 continue
             }
 
@@ -3476,7 +3599,7 @@ struct WidgetPickerView: View {
                 case .gamepadButton, .keyboardButton, .functionalButton, .shortcutButton:
                     remainingButtons -= 1
                     if remainingButtons > 0 {
-                        rebuilt.append((cmd: Self.makeTriggerIntervalCommand(milliseconds: trailingUniformInterval), source: .interval, isTailLocked: false, displayText: nil))
+                        rebuilt.append((cmd: trailingUniformInterval, source: .interval, isTailLocked: false, displayText: nil))
                     }
                 case .gamepadPad, .keyboardPad, .triggerInterval:
                     break
@@ -3583,25 +3706,48 @@ struct WidgetPickerView: View {
         return duration
     }
 
-    static func triggerIntervalMilliseconds(for cmd: String) -> Int? {
+    /// Parses an interval token: "200MS" (fixed) or "150~350MS" (random between the two).
+    static func triggerIntervalRange(for cmd: String) -> (min: Int, max: Int)? {
         let normalized = cmd.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard normalized.hasSuffix("MS") else { return nil }
         let numericPart = normalized.dropLast(2)
-        guard !numericPart.isEmpty,
-              numericPart.allSatisfy(\.isNumber),
-              let milliseconds = Int(numericPart) else {
-            return nil
+        let parts = numericPart.split(separator: "~", omittingEmptySubsequences: false)
+        guard parts.count == 1 || parts.count == 2 else { return nil }
+        var values: [Int] = []
+        for part in parts {
+            guard !part.isEmpty, part.allSatisfy(\.isNumber), let value = Int(part) else {
+                return nil
+            }
+            values.append(value)
         }
-        return milliseconds
+        let lower = values.min() ?? 0
+        let upper = values.max() ?? 0
+        return (min: lower, max: upper)
+    }
+
+    /// Upper bound of an interval token (the fixed value for "200MS").
+    static func triggerIntervalMilliseconds(for cmd: String) -> Int? {
+        triggerIntervalRange(for: cmd)?.max
     }
 
     static func makeTriggerIntervalCommand(milliseconds: Int) -> String {
         "\(milliseconds)MS"
     }
 
+    static func makeTriggerIntervalCommand(minimum: Int, maximum: Int) -> String {
+        let lower = Swift.max(0, Swift.min(minimum, maximum))
+        let upper = Swift.max(0, Swift.max(minimum, maximum))
+        return lower == upper ? "\(lower)MS" : "\(lower)~\(upper)MS"
+    }
+
+    static func normalizedTriggerIntervalCommand(_ cmd: String) -> String? {
+        guard let range = triggerIntervalRange(for: cmd) else { return nil }
+        return makeTriggerIntervalCommand(minimum: range.min, maximum: range.max)
+    }
+
     static func intervalDisplayText(for cmd: String) -> String {
-        guard let milliseconds = triggerIntervalMilliseconds(for: cmd) else { return cmd.lowercased() }
-        return "\(milliseconds)ms"
+        guard let range = triggerIntervalRange(for: cmd) else { return cmd.lowercased() }
+        return range.min == range.max ? "\(range.min)ms" : "\(range.min)~\(range.max)ms"
     }
 
     private var gamepadCommands: Set<String> {
@@ -3663,16 +3809,19 @@ struct WidgetPickerView: View {
     }
 
     private func initialTriggerInterval(from cmdString: String?) -> Int {
+        initialTriggerIntervalRange(from: cmdString).min
+    }
+
+    private func initialTriggerIntervalRange(from cmdString: String?) -> (min: Int, max: Int) {
         let normalized = cmdString?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .uppercased() ?? ""
 
-        guard let match = normalized.range(of: #"(\d+)MS$"#, options: .regularExpression) else {
-            return 0
+        guard let match = normalized.range(of: #"\d+(~\d+)?MS$"#, options: .regularExpression) else {
+            return (min: 0, max: 0)
         }
 
-        let suffix = String(normalized[match])
-        return Int(suffix.replacingOccurrences(of: "MS", with: "")) ?? 0
+        return Self.triggerIntervalRange(for: String(normalized[match])) ?? (min: 0, max: 0)
     }
 }
 

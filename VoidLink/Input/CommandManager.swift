@@ -609,7 +609,7 @@ import UIKit
                 .map(String.init(describing:)) // 安全类型转换
             
             let keys = combinedStrings.joined(separator: "|")
-            let pattern = "^(?:\(keys))(?:-(?:\(keys)))*(?:-\\d+MS)?$"
+            let pattern = "^(?:\(keys))(?:-(?:\(keys)))*(?:-\\d+(?:~\\d+)?MS)?$"
             
             
             guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
