@@ -444,6 +444,7 @@ final class LayoutOnScreenControlsViewController: UIViewController, OnScreenWidg
                 widgetView.highlightSizeFactor = buttonState.highlightSizeFactor
                 widgetView.autoTapInterval = Int(buttonState.autoTapInterval)
                 widgetView.autoTapRepeats = UInt32(buttonState.autoTapRepeats)
+                widgetView.autoTapIntervalMax = Int(buttonState.autoTapIntervalMax)
                 widgetView.setVibration(style: Int(buttonState.vibrationStyle))
                 widgetView.mouseButtonAction = MouseButtonAction(rawValue: Int(buttonState.mouseButtonAction)) ?? .hovering
                 widgetView.animatesTransition = buttonState.animatesTransition
@@ -1319,6 +1320,7 @@ final class LayoutOnScreenControlsViewController: UIViewController, OnScreenWidg
         newWidget.highlightSizeFactor = widget.highlightSizeFactor
         newWidget.autoTapInterval = widget.autoTapInterval
         newWidget.autoTapRepeats = widget.autoTapRepeats
+        newWidget.autoTapIntervalMax = widget.autoTapIntervalMax
         newWidget.sensitivityFactorY = widget.sensitivityFactorY
         newWidget.slideThreshold = widget.slideThreshold
         newWidget.yawFactor = widget.yawFactor
@@ -2014,7 +2016,24 @@ final class LayoutOnScreenControlsViewController: UIViewController, OnScreenWidg
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         if textField == autoTapField {
             textField.resignFirstResponder()
-            selectedWidget?.setAutoTapIntervalByText(str: textField.text ?? "")
+            if let selectedWidget {
+                let previousInterval = selectedWidget.autoTapInterval
+                selectedWidget.setAutoTapIntervalByText(str: textField.text ?? "")
+                // Show what was understood, e.g. "6000~10000ms".
+                textField.text = selectedWidget.getAutoTapIntervalStr()
+                // Turning autotap on for a press-style button defaults it to Tap to toggle:
+                // tap once to start repeating, tap again to stop.
+                let autoTapJustEnabled = previousInterval < 50 && selectedWidget.autoTapInterval >= 50
+                let pressModes: [ButtonMode] = [.regular, .slideToToggle, .slideAndHold]
+                let toggleIndex = Int(ButtonMode.tapToToggle.rawValue)
+                if autoTapJustEnabled,
+                   pressModes.contains(selectedWidget.buttonMode),
+                   toggleIndex < buttonModeSelector.numberOfSegments,
+                   buttonModeSelector.isEnabledForSegment(at: toggleIndex) {
+                    selectedWidget.buttonMode = .tapToToggle
+                    buttonModeSelector.selectedSegmentIndex = toggleIndex
+                }
+            }
         }
         if textField == autoTapRepeatsField {
             textField.resignFirstResponder()
